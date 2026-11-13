@@ -1,25 +1,10 @@
 import { computeSplit, weekKey, dayNumber } from './calc.js';
+import {
+  isShared, createLocalStore, createFirebaseStore, createPiso, pisoExists,
+  getPisoId, setPisoId, parsePisoInput, loadLocalData,
+} from './store.js';
 
-// ---------- Datos (guardados en el móvil con localStorage) ----------
-const KEY = 'agua-piso-v1';
-const DEFAULT = {
-  people: [1, 2, 3, 4, 5].map(i => ({ id: 'p' + i, name: 'Persona ' + i })),
-  settings: { guestCost: 0.4, freeWashesPerWeek: 2, extraWashPct: 1 },
-  entries: {},   // { "2026-11-13": { guests: { p1: 1 }, washes: { p3: 1 } } }
-  bills: [],     // facturas guardadas
-};
-
-function load() {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (raw) return { ...structuredClone(DEFAULT), ...JSON.parse(raw) };
-  } catch (e) { /* datos corruptos o almacenamiento bloqueado */ }
-  return structuredClone(DEFAULT);
-}
-let state = load();
-const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
-
-// ---------- Utilidades de fecha ----------
+// ---------- Utilidades ----------
 const pad = n => String(n).padStart(2, '0');
 const toStr = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const fromStr = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
@@ -33,90 +18,115 @@ const $ = id => document.getElementById(id);
 const today = toStr(new Date());
 let selected = today;
 let viewYear = new Date().getFullYear(), viewMonth = new Date().getMonth();
+let store = null;           // se crea en boot()
+let activeTab = 'calendar';
+const S = () => store.state;
 
 // ---------- Pestañas ----------
-document.querySelectorAll('.tabbar button').forEach(btn => btn.addEventListener('click', () => {
-  document.querySelectorAll('.tabbar button').forEach(b => b.classList.toggle('active', b === btn));
-  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + btn.dataset.tab));
-  if (btn.dataset.tab === 'calendar') renderCalendar();
-  if (btn.dataset.tab === 'bill') renderBillTab();
-  if (btn.dataset.tab === 'settings') renderSettings();
-}));
+function showTab(name) {
+  activeTab = name;
+  document.querySelectorAll('.tabbar button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + name));
+  $('tabbar').hidden = name === 'join';
+  render();
+}
+document.querySelectorAll('.tabbar button').forEach(btn => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
+
+function render() {
+  if (!store) return;
+  if (activeTab === 'calendar') renderCalendar();
+  if (activeTab === 'bill') renderBillTab();
+  if (activeTab === 'settings') renderSettings();
+}
 
 // ---------- Calendario ----------
+// Los botones se crean solo cuando cambia el mes / el día / los nombres. Si solo llegan datos nuevos
+// (de otro móvil), se actualizan los números sin rehacer los botones: así no se pierde un toque
+// que esté a medias justo cuando llega una actualización.
+let calendarKey = '', dayKey = '';
+
 function renderCalendar() {
   const first = new Date(viewYear, viewMonth, 1);
-  $('month-title').textContent = first.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
-  const offset = (first.getDay() + 6) % 7; // lunes = 0
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
-  let html = '<div class="day empty"></div>'.repeat(offset);
-  for (let d = 1; d <= daysInMonth; d++) {
-    const ds = `${viewYear}-${pad(viewMonth + 1)}-${pad(d)}`;
-    const e = state.entries[ds] || {};
+  const key = `${viewYear}-${viewMonth}`;
+  if (key !== calendarKey) {
+    calendarKey = key;
+    $('month-title').textContent = first.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+    const offset = (first.getDay() + 6) % 7; // lunes = 0
+    let html = '<div class="day empty"></div>'.repeat(offset);
+    for (let d = 1; d <= daysInMonth; d++) {
+      const ds = `${viewYear}-${pad(viewMonth + 1)}-${pad(d)}`;
+      html += `<button class="day" data-date="${ds}"><span>${d}</span><span class="marks"></span></button>`;
+    }
+    $('calendar').innerHTML = html;
+  }
+  $('calendar').querySelectorAll('.day[data-date]').forEach(btn => {
+    const ds = btn.dataset.date;
+    const e = S().entries[ds] || {};
     const g = Object.values(e.guests || {}).reduce((a, b) => a + b, 0);
     const w = Object.values(e.washes || {}).reduce((a, b) => a + b, 0);
     const marks = '<span class="dot guest"></span>'.repeat(Math.min(g, 5)) + '<span class="dot wash"></span>'.repeat(Math.min(w, 5));
-    const cls = ['day', ds === today && 'today', ds === selected && 'selected'].filter(Boolean).join(' ');
-    html += `<button class="${cls}" data-date="${ds}"><span>${d}</span><span class="marks">${marks}</span></button>`;
-  }
-  $('calendar').innerHTML = html;
-  $('calendar').querySelectorAll('.day[data-date]').forEach(b =>
-    b.addEventListener('click', () => { selected = b.dataset.date; renderCalendar(); }));
+    const m = btn.querySelector('.marks');
+    if (m.innerHTML !== marks) m.innerHTML = marks;
+    btn.classList.toggle('today', ds === today);
+    btn.classList.toggle('selected', ds === selected);
+  });
   renderDay();
 }
+$('calendar').addEventListener('click', ev => {
+  const btn = ev.target.closest('.day[data-date]');
+  if (btn) { selected = btn.dataset.date; renderCalendar(); }
+});
 
 function renderDay() {
-  $('day-title').textContent = fmtLong(selected);
-  const e = state.entries[selected] || {};
-  $('day-people').innerHTML = state.people.map(p => `
-    <div class="person">
-      <span class="pname">${esc(p.name)}</span>
-      <span class="stepper guest" title="Noches de visita">🏠
-        <button data-p="${p.id}" data-k="guests" data-d="-1">−</button>
-        <span class="val">${e.guests?.[p.id] || 0}</span>
-        <button data-p="${p.id}" data-k="guests" data-d="1">+</button></span>
-      <span class="stepper wash" title="Lavadoras">🧺
-        <button data-p="${p.id}" data-k="washes" data-d="-1">−</button>
-        <span class="val">${e.washes?.[p.id] || 0}</span>
-        <button data-p="${p.id}" data-k="washes" data-d="1">+</button></span>
-    </div>`).join('');
-  $('day-people').querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
-    change(selected, b.dataset.k, b.dataset.p, Number(b.dataset.d));
-  }));
+  const key = selected + '|' + S().people.map(p => p.id + p.name).join('|');
+  if (key !== dayKey) {
+    dayKey = key;
+    $('day-title').textContent = fmtLong(selected);
+    const stepper = (p, k, icon, title) => `<span class="stepper ${k === 'guests' ? 'guest' : 'wash'}" title="${title}">${icon}
+        <button data-p="${p.id}" data-k="${k}" data-d="-1" aria-label="Quitar">−</button>
+        <span class="val" data-val="${p.id}-${k}">0</span>
+        <button data-p="${p.id}" data-k="${k}" data-d="1" aria-label="Añadir">+</button></span>`;
+    $('day-people').innerHTML = S().people.map(p => `
+      <div class="person">
+        <span class="pname">${esc(p.name)}</span>
+        ${stepper(p, 'guests', '🏠', 'Noches de visita')}
+        ${stepper(p, 'washes', '🧺', 'Lavadoras')}
+      </div>`).join('');
+  }
+  const e = S().entries[selected] || {};
+  $('day-people').querySelectorAll('[data-val]').forEach(el => {
+    const [pid, k] = el.dataset.val.split('-');
+    el.textContent = e[k]?.[pid] || 0;
+  });
 
   // Resumen semanal de lavadoras (lunes-domingo de la semana seleccionada)
   const monday = weekKey(selected);
-  const counts = Object.fromEntries(state.people.map(p => [p.id, 0]));
+  const counts = Object.fromEntries(S().people.map(p => [p.id, 0]));
   for (let i = 0; i < 7; i++) {
-    const w = state.entries[addDays(monday, i)]?.washes || {};
+    const w = S().entries[addDays(monday, i)]?.washes || {};
     for (const [pid, c] of Object.entries(w)) if (pid in counts) counts[pid] += c;
   }
-  const free = state.settings.freeWashesPerWeek;
-  $('week-summary').innerHTML = state.people.map(p =>
+  const free = S().settings.freeWashesPerWeek;
+  $('week-summary').innerHTML = S().people.map(p =>
     `<span class="chip ${counts[p.id] > free ? 'over' : ''}">${esc(p.name)}: ${counts[p.id]}/${free}</span>`).join('');
 }
-
-function change(date, kind, pid, delta) {
-  const e = state.entries[date] ||= {};
-  const bucket = e[kind] ||= {};
-  bucket[pid] = Math.max(0, (bucket[pid] || 0) + delta);
-  if (!bucket[pid]) delete bucket[pid];
-  if (!Object.keys(bucket).length) delete e[kind];
-  if (!Object.keys(e).length) delete state.entries[date];
-  save();
-  renderCalendar();
-}
+// Un solo "escuchador" para todos los botones + / − (delegación de eventos)
+$('day-people').addEventListener('click', ev => {
+  const b = ev.target.closest('button[data-k]');
+  if (b) store.change(selected, b.dataset.k, b.dataset.p, Number(b.dataset.d));
+});
 
 $('prev-month').addEventListener('click', () => { if (--viewMonth < 0) { viewMonth = 11; viewYear--; } renderCalendar(); });
 $('next-month').addEventListener('click', () => { if (++viewMonth > 11) { viewMonth = 0; viewYear++; } renderCalendar(); });
 
 // ---------- Factura ----------
-let lastResult = null;
+let shownBill = null; // { bill, result, saved }
 
 function renderBillTab() {
   // Propuesta de fechas: desde el día siguiente a la última factura (o hace 3 meses) hasta hoy
   if (!$('bill-from').value) {
-    const last = state.bills[0];
+    const last = S().bills[0];
     const d = new Date(); d.setMonth(d.getMonth() - 3);
     $('bill-from').value = last ? addDays(last.to, 1) : toStr(d);
     $('bill-to').value = today;
@@ -124,9 +134,11 @@ function renderBillTab() {
   renderHistory();
 }
 
-function resultHtml(r, bill, saved) {
-  const s = state.settings;
-  return `<div class="card">
+function showResult(bill, result, saved) {
+  shownBill = { bill, result, saved };
+  const s = bill.settings || S().settings;
+  const r = result;
+  $('bill-result').innerHTML = `<div class="card">
     <h3>Reparto ${fmtShort(bill.from)} – ${fmtShort(bill.to)}</h3>
     <table>
       <tr><th>Persona</th><th>🏠</th><th>🧺 (extra)</th><th>Paga</th></tr>
@@ -142,6 +154,10 @@ function resultHtml(r, bill, saved) {
       `<p class="small">• <b>${esc(x.name)}</b>: ${eur(x.baseAmount)} de parte base${x.guestNights ? ` + ${eur(x.guestAmount)} por ${x.guestNights} noche(s) de visita` : ''}${x.extraWashes ? ` (incluye +${eur(x.laundryDiff)} por ${x.extraWashes} lavadora(s) extra)` : ''}.</p>`).join('')}
     ${saved ? '' : '<button id="save-bill" class="primary">Guardar factura</button>'}
   </div>`;
+  if (!saved) $('save-bill').addEventListener('click', () => {
+    store.addBill({ id: Date.now(), ...bill, settings: { ...S().settings }, result });
+    showResult(bill, result, true);
+  });
 }
 
 $('calc-btn').addEventListener('click', () => {
@@ -149,55 +165,68 @@ $('calc-btn').addEventListener('click', () => {
   if (!from || !to || dayNumber(from) > dayNumber(to)) return alert('Revisa las fechas.');
   if (!(total > 0)) return alert('Introduce el importe de la factura.');
   const bill = { from, to, total };
-  lastResult = computeSplit({ ...state, ...bill });
-  $('bill-result').innerHTML = resultHtml(lastResult, bill, false);
-  $('save-bill').addEventListener('click', () => {
-    state.bills.unshift({ id: Date.now(), ...bill, settings: { ...state.settings }, result: lastResult });
-    save();
-    $('bill-result').innerHTML = resultHtml(lastResult, bill, true);
-    renderHistory();
-  });
+  showResult(bill, computeSplit({ ...S(), ...bill }), false);
 });
 
 function renderHistory() {
-  if (!state.bills.length) { $('bill-history').innerHTML = '<p class="muted">Aún no hay facturas guardadas.</p>'; return; }
-  $('bill-history').innerHTML = state.bills.map(b => `
+  if (!S().bills.length) { $('bill-history').innerHTML = '<p class="muted">Aún no hay facturas guardadas.</p>'; return; }
+  $('bill-history').innerHTML = S().bills.map(b => `
     <div class="history-item">
       <span>${fmtShort(b.from)} – ${fmtShort(b.to)}<br><b>${eur(b.total)}</b></span>
       <span class="row" style="flex:0 0 auto"><button data-view="${b.id}">Ver</button><button data-del="${b.id}">🗑</button></span>
     </div>`).join('');
   $('bill-history').querySelectorAll('[data-view]').forEach(btn => btn.addEventListener('click', () => {
-    const b = state.bills.find(x => x.id == btn.dataset.view);
-    $('bill-result').innerHTML = resultHtml(b.result, b, true);
+    const b = S().bills.find(x => x.id == btn.dataset.view);
+    showResult(b, b.result, true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }));
   $('bill-history').querySelectorAll('[data-del]').forEach(btn => btn.addEventListener('click', () => {
-    if (!confirm('¿Borrar esta factura del historial?')) return;
-    state.bills = state.bills.filter(x => x.id != btn.dataset.del);
-    save(); renderHistory();
+    if (confirm('¿Borrar esta factura del historial? (se borrará para todas)')) store.deleteBill(btn.dataset.del);
   }));
 }
 
 // ---------- Ajustes ----------
+const shareUrl = () => `${location.origin}${location.pathname}?piso=${store.pisoId}`;
+
 function renderSettings() {
-  $('names').innerHTML = state.people.map((p, i) =>
+  // No tocar el campo que la persona está escribiendo, aunque lleguen cambios de otro móvil
+  const focused = document.activeElement;
+  $('names').innerHTML = S().people.map((p, i) =>
     `<label>Persona ${i + 1}<input type="text" data-pid="${p.id}" value="${esc(p.name)}" maxlength="20"></label>`).join('');
-  $('names').querySelectorAll('input').forEach(inp => inp.addEventListener('change', () => {
-    state.people.find(p => p.id === inp.dataset.pid).name = inp.value.trim() || 'Sin nombre';
-    save();
-  }));
-  $('set-guest').value = state.settings.guestCost;
-  $('set-free').value = state.settings.freeWashesPerWeek;
-  $('set-pct').value = state.settings.extraWashPct;
+  if (focused?.dataset?.pid) {
+    const again = $('names').querySelector(`[data-pid="${focused.dataset.pid}"]`);
+    again.value = focused.value; again.focus();
+  }
+  $('names').querySelectorAll('input').forEach(inp => inp.addEventListener('change', () =>
+    store.setPersonName(inp.dataset.pid, inp.value.trim() || 'Sin nombre')));
+  for (const [id, key] of SETTING_FIELDS) if (document.activeElement !== $(id)) $(id).value = S().settings[key];
+
+  $('share-card').hidden = store.mode !== 'shared';
+  if (store.mode === 'shared') $('share-link').value = shareUrl();
+  $('reset-btn').textContent = store.mode === 'shared' ? 'Borrar todos los datos del piso (para todas)' : 'Borrar todos los datos';
 }
-[['set-guest', 'guestCost'], ['set-free', 'freeWashesPerWeek'], ['set-pct', 'extraWashPct']].forEach(([id, key]) =>
-  $(id).addEventListener('change', () => {
-    const v = parseFloat($(id).value);
-    if (v >= 0) { state.settings[key] = v; save(); }
-  }));
+const SETTING_FIELDS = [['set-guest', 'guestCost'], ['set-free', 'freeWashesPerWeek'], ['set-pct', 'extraWashPct']];
+SETTING_FIELDS.forEach(([id, key]) => $(id).addEventListener('change', () => {
+  const v = parseFloat($(id).value);
+  if (v >= 0) store.setSetting(key, v);
+}));
+
+$('share-btn').addEventListener('click', async () => {
+  const url = shareUrl();
+  if (navigator.share) {
+    try { await navigator.share({ title: 'Agua del Piso', text: 'Únete a nuestro piso en la app del agua:', url }); return; } catch {}
+  }
+  try { await navigator.clipboard.writeText(url); alert('Enlace copiado. Pégalo en el grupo del piso.'); }
+  catch { $('share-link').select(); }
+});
+$('leave-btn').addEventListener('click', () => {
+  if (!confirm('Este móvil dejará de ver el piso (los datos NO se borran). Para volver necesitarás el enlace. ¿Salir?')) return;
+  setPisoId(null);
+  location.reload();
+});
 
 $('export-btn').addEventListener('click', () => {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify(S(), null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `agua-piso-${today}.json`;
@@ -206,21 +235,86 @@ $('export-btn').addEventListener('click', () => {
 });
 $('import-file').addEventListener('change', async ev => {
   const file = ev.target.files[0];
-  if (!file) return;
-  try {
-    const data = JSON.parse(await file.text());
-    if (!Array.isArray(data.people) || typeof data.entries !== 'object') throw new Error();
-    if (!confirm('Esto sustituirá los datos de este móvil por los del archivo. ¿Continuar?')) return;
-    state = { ...structuredClone(DEFAULT), ...data };
-    save(); renderSettings(); alert('Datos importados.');
-  } catch { alert('El archivo no es válido.'); }
   ev.target.value = '';
+  if (!file) return;
+  let data;
+  try {
+    data = JSON.parse(await file.text());
+    if (!Array.isArray(data.people) || typeof data.entries !== 'object') throw new Error();
+  } catch { return alert('El archivo no es válido.'); }
+  if (!confirm('Esto sustituirá TODOS los datos por los del archivo. ¿Continuar?')) return;
+  try { await store.importAll(data); alert('Datos importados.'); } catch { alert('No se pudo importar. ¿Hay conexión?'); }
 });
-$('reset-btn').addEventListener('click', () => {
-  if (!confirm('¿Seguro? Se borrarán calendario, facturas y nombres.')) return;
-  state = structuredClone(DEFAULT); save(); renderSettings();
+$('reset-btn').addEventListener('click', async () => {
+  if (!confirm('¿Seguro? Se borrarán calendario, facturas y nombres' + (store.mode === 'shared' ? ' para TODAS las personas del piso.' : '.'))) return;
+  try { await store.resetAll(); } catch { alert('No se pudo borrar. ¿Hay conexión?'); }
+});
+
+// ---------- Estado de sincronización ----------
+const STATUS = {
+  local: '', synced: '☁️ Sincronizado', pending: '⏳ Sincronizando…',
+  offline: '📴 Sin conexión', error: '⚠️ Error de conexión',
+};
+
+// ---------- Crear / unirse a un piso ----------
+async function enterPiso(id) {
+  setPisoId(id);
+  store = await createFirebaseStore(id);
+  store.onChange(render);
+  store.onStatus(s => { $('sync-status').textContent = STATUS[s] ?? ''; });
+  showTab('calendar');
+}
+
+$('create-piso').addEventListener('click', async () => {
+  const btn = $('create-piso');
+  const local = loadLocalData();
+  const hasLocal = Object.keys(local.entries).length || local.bills.length;
+  const upload = hasLocal && confirm('Este móvil ya tiene datos apuntados. ¿Quieres subirlos al piso nuevo?');
+  btn.disabled = true; btn.textContent = 'Creando…';
+  try {
+    await enterPiso(await createPiso(upload ? local : undefined));
+    showTab('settings'); // para que vea enseguida el enlace para compartir
+  } catch (e) {
+    console.error(e);
+    alert('No se pudo crear el piso. Comprueba la conexión.');
+  } finally { btn.disabled = false; btn.textContent = 'Crear un piso nuevo'; }
+});
+
+$('join-piso').addEventListener('click', async () => {
+  const id = parsePisoInput($('join-input').value);
+  $('join-error').textContent = '';
+  if (!id) { $('join-error').textContent = 'Ese enlace o código no es válido.'; return; }
+  try {
+    if (!(await pisoExists(id))) { $('join-error').textContent = 'No existe ningún piso con ese código.'; return; }
+    await enterPiso(id);
+  } catch (e) {
+    console.error(e);
+    $('join-error').textContent = 'No se pudo comprobar el piso. ¿Hay conexión?';
+  }
 });
 
 // ---------- Inicio ----------
-renderCalendar();
+async function boot() {
+  if (!isShared) {
+    store = createLocalStore();
+    store.onChange(render);
+    showTab('calendar');
+    return;
+  }
+  $('backup-help').textContent = 'Los datos están en la nube, pero puedes exportar una copia de seguridad.';
+
+  // ¿Han abierto un enlace de invitación (?piso=...)?
+  const params = new URLSearchParams(location.search);
+  const invited = parsePisoInput(params.get('piso') ? '?piso=' + params.get('piso') : '');
+  if (invited) history.replaceState(null, '', location.pathname);
+  let id = getPisoId();
+  if (invited && invited !== id && (!id || confirm('Has abierto el enlace de otro piso. ¿Cambiar a ese piso?'))) id = invited;
+
+  if (id) {
+    try { await enterPiso(id); return; } catch (e) { console.error(e); }
+  }
+  showTab('join');
+}
+
+boot();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});

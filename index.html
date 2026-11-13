@@ -11,11 +11,27 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header class="topbar"><h1>💧 Agua del Piso</h1></header>
+  <header class="topbar"><h1>💧 Agua del Piso</h1><span id="sync-status" class="sync"></span></header>
 
   <main>
+    <!-- CREAR / UNIRSE A UN PISO (solo en modo compartido) -->
+    <section id="tab-join" class="tab">
+      <div class="card">
+        <h3>Bienvenida 👋</h3>
+        <p class="small">Para que las 5 veáis los mismos datos, una persona crea el piso y comparte el enlace con las demás.</p>
+        <button id="create-piso" class="primary">Crear un piso nuevo</button>
+      </div>
+      <div class="card">
+        <h3>Unirme a un piso</h3>
+        <label>Pega el enlace o el código que te han pasado
+          <input type="text" id="join-input" autocomplete="off" placeholder="https://...?piso=..."></label>
+        <button id="join-piso" class="primary">Unirme</button>
+        <p id="join-error" class="error small"></p>
+      </div>
+    </section>
+
     <!-- CALENDARIO -->
-    <section id="tab-calendar" class="tab active">
+    <section id="tab-calendar" class="tab">
       <div class="month-nav">
         <button id="prev-month" aria-label="Mes anterior">‹</button>
         <h2 id="month-title"></h2>
@@ -51,6 +67,15 @@
 
     <!-- AJUSTES -->
     <section id="tab-settings" class="tab">
+      <div class="card" id="share-card" hidden>
+        <h3>Piso compartido</h3>
+        <p class="small muted">Envía este enlace a tus compañeras/os. Quien lo abra verá y podrá editar los mismos datos.</p>
+        <input type="text" id="share-link" readonly>
+        <div class="row" style="margin-top:8px">
+          <button id="share-btn">📤 Compartir enlace</button>
+          <button id="leave-btn">Salir del piso</button>
+        </div>
+      </div>
       <div class="card">
         <h3>Compañeras/os de piso</h3>
         <div id="names"></div>
@@ -64,7 +89,7 @@
       </div>
       <div class="card">
         <h3>Copia de seguridad / compartir datos</h3>
-        <p class="muted small">Los datos se guardan en este móvil. Exporta el archivo para pasarlo a otro móvil o guardarlo.</p>
+        <p class="muted small" id="backup-help">Exporta un archivo con todos los datos para guardarlo como copia de seguridad.</p>
         <div class="row">
           <button id="export-btn">Exportar</button>
           <label class="button">Importar<input type="file" id="import-file" accept="application/json" hidden></label>
@@ -74,7 +99,7 @@
     </section>
   </main>
 
-  <nav class="tabbar">
+  <nav class="tabbar" id="tabbar">
     <button data-tab="calendar" class="active">📅<span>Calendario</span></button>
     <button data-tab="bill">💶<span>Factura</span></button>
     <button data-tab="settings">⚙️<span>Ajustes</span></button>

@@ -1,0 +1,29 @@
+rules_version = '2';
+// Reglas de seguridad de la base de datos.
+// No hay usuarios ni contraseñas: el "secreto" es el código del piso (20 caracteres aleatorios).
+// - Nadie puede LISTAR los pisos (así no se pueden descubrir los códigos).
+// - Quien conoce el código puede leer y modificar los datos de ese piso.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /pisos/{pisoId} {
+      allow get: if true;
+      allow create: if pisoId.size() >= 20 && request.resource.data.keys().hasOnly(['people', 'settings', 'createdAt']);
+      allow update: if request.resource.data.keys().hasOnly(['people', 'settings', 'createdAt'])
+                    && request.resource.data.people.size() == 5;
+      allow delete: if false;
+
+      // Días del calendario: el id es la fecha (YYYY-MM-DD)
+      match /days/{date} {
+        allow read: if true;
+        allow write: if date.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+                     && exists(/databases/$(database)/documents/pisos/$(pisoId))
+                     && (request.resource == null || request.resource.data.keys().hasOnly(['guests', 'washes']));
+      }
+      // Facturas guardadas
+      match /bills/{billId} {
+        allow read: if true;
+        allow write: if exists(/databases/$(database)/documents/pisos/$(pisoId));
+      }
+    }
+  }
+}
