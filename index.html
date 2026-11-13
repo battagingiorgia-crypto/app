@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1677c9">
+  <title>Agua del Piso</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar"><h1>💧 Agua del Piso</h1></header>
+
+  <main>
+    <!-- CALENDARIO -->
+    <section id="tab-calendar" class="tab active">
+      <div class="month-nav">
+        <button id="prev-month" aria-label="Mes anterior">‹</button>
+        <h2 id="month-title"></h2>
+        <button id="next-month" aria-label="Mes siguiente">›</button>
+      </div>
+      <div class="weekdays"><span>L</span><span>M</span><span>X</span><span>J</span><span>V</span><span>S</span><span>D</span></div>
+      <div id="calendar" class="calendar"></div>
+      <p class="legend"><span class="dot guest"></span> visita &nbsp; <span class="dot wash"></span> lavadora</p>
+
+      <div id="day-panel" class="card">
+        <h3 id="day-title"></h3>
+        <div id="day-people"></div>
+        <h4>Lavadoras esta semana</h4>
+        <div id="week-summary" class="week-summary"></div>
+      </div>
+    </section>
+
+    <!-- FACTURA -->
+    <section id="tab-bill" class="tab">
+      <div class="card">
+        <h3>Nueva factura</h3>
+        <label>Desde <input type="date" id="bill-from"></label>
+        <label>Hasta <input type="date" id="bill-to"></label>
+        <label>Importe total (€) <input type="number" id="bill-total" step="0.01" min="0" inputmode="decimal" placeholder="Ej. 142.35"></label>
+        <button id="calc-btn" class="primary">Calcular reparto</button>
+      </div>
+      <div id="bill-result"></div>
+      <div class="card">
+        <h3>Historial</h3>
+        <div id="bill-history"><p class="muted">Aún no hay facturas guardadas.</p></div>
+      </div>
+    </section>
+
+    <!-- AJUSTES -->
+    <section id="tab-settings" class="tab">
+      <div class="card">
+        <h3>Compañeras/os de piso</h3>
+        <div id="names"></div>
+      </div>
+      <div class="card">
+        <h3>Reglas</h3>
+        <label>Coste por noche de visita (€) <input type="number" id="set-guest" step="0.01" min="0"></label>
+        <label>Lavadoras gratis por persona y semana <input type="number" id="set-free" step="1" min="0"></label>
+        <label>Recargo por cada lavadora extra (%) <input type="number" id="set-pct" step="0.5" min="0"></label>
+        <p class="muted small">Recomendado: 1 % por lavadora extra (ver README).</p>
+      </div>
+      <div class="card">
+        <h3>Copia de seguridad / compartir datos</h3>
+        <p class="muted small">Los datos se guardan en este móvil. Exporta el archivo para pasarlo a otro móvil o guardarlo.</p>
+        <div class="row">
+          <button id="export-btn">Exportar</button>
+          <label class="button">Importar<input type="file" id="import-file" accept="application/json" hidden></label>
+        </div>
+        <button id="reset-btn" class="danger">Borrar todos los datos</button>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabbar">
+    <button data-tab="calendar" class="active">📅<span>Calendario</span></button>
+    <button data-tab="bill">💶<span>Factura</span></button>
+    <button data-tab="settings">⚙️<span>Ajustes</span></button>
+  </nav>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
