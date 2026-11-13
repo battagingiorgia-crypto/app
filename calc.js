@@ -27,35 +27,74 @@ export function splitCents(totalCents, weights) {
   return floors;
 }
 
+/** Número del bloque al que pertenece una fecha (bloques fijos de `windowDays` días desde `blockStart`). */
+export function blockIndex(date, blockStart, windowDays = 9) {
+  return Math.floor((dayNumber(date) - dayNumber(blockStart)) / windowDays);
+}
+
+/** Primer y último día (YYYY-MM-DD) del bloque que contiene `date`. */
+export function blockRange(date, blockStart, windowDays = 9) {
+  const first = dayNumber(blockStart) + blockIndex(date, blockStart, windowDays) * windowDays;
+  const str = n => new Date(n * 86400000).toISOString().slice(0, 10);
+  return [str(first), str(first + windowDays - 1)];
+}
+
+/**
+ * Lavadoras extra de una persona, por día: { "2026-11-13": 1, ... }.
+ * Bloques fijos: los días se agrupan en bloques de `windowDays` días que empiezan en `blockStart`.
+ * En cada bloque las `free` primeras lavadoras son normales; desde la siguiente (la 3ª si free = 2), son extra.
+ * Ej. bloques 1–9, 10–18…: lavadoras los días 2, 5 y 8 → la del 8 es extra;
+ *     lavadoras los días 5, 8 y 11 → ninguna es extra (la del 11 ya está en el bloque siguiente).
+ */
+export function washExtrasByDate(entries, pid, free = 2, windowDays = 9, blockStart = '2026-01-01') {
+  const days = Object.entries(entries || {})
+    .map(([date, e]) => [dayNumber(date), date, e.washes?.[pid] || 0])
+    .filter(([, , c]) => c > 0)
+    .sort((a, b) => a[0] - b[0]);
+  const perBlock = {}; // lavadoras ya contadas en cada bloque
+  const out = {};
+  for (const [, date, count] of days) {
+    const blk = blockIndex(date, blockStart, windowDays);
+    for (let k = 0; k < count; k++) {
+      perBlock[blk] = (perBlock[blk] || 0) + 1;
+      if (perBlock[blk] > free) out[date] = (out[date] || 0) + 1;
+    }
+  }
+  return out;
+}
+
+/** Lavadoras extra de todas las personas: { p1: { fecha: n }, ... } */
+export function allWashExtras(entries, people, settings = {}) {
+  const { freeWashes = 2, windowDays = 9, blockStart = '2026-01-01' } = settings;
+  return Object.fromEntries(people.map(p => [p.id, washExtrasByDate(entries, p.id, freeWashes, windowDays, blockStart)]));
+}
+
 /**
  * Calcula cuánto paga cada persona.
  * Pasos:
  *  1) Cada noche de invitado suma guestCost (p. ej. 0,40 €) a quien lo tuvo.
  *  2) Lo que queda de la factura se reparte entre todos con un "peso":
  *     peso = 1 + (pct/100) × lavadoras_extra
- *     (lavadoras_extra = las que superan freeWashesPerWeek en cada semana).
+ *     (lavadoras_extra = las que superan freeWashes dentro de cada bloque de windowDays días).
  *     Así quien no se pasa paga la parte normal y quien se pasa paga un pct% más por cada lavadora extra.
  */
 export function computeSplit({ people, entries, from, to, total, settings }) {
-  const { guestCost = 0.4, freeWashesPerWeek = 2, extraWashPct = 1 } = settings || {};
+  const { guestCost = 0.4, extraWashPct = 2 } = settings || {};
   const start = dayNumber(from), end = dayNumber(to);
+  const inPeriod = date => { const n = dayNumber(date); return n >= start && n <= end; };
   const totalCents = Math.round(total * 100);
 
-  const stats = Object.fromEntries(people.map(p => [p.id, { guestNights: 0, washes: 0, weeks: {} }]));
-
+  const stats = Object.fromEntries(people.map(p => [p.id, { guestNights: 0, washes: 0 }]));
   for (const [date, entry] of Object.entries(entries || {})) {
-    const n = dayNumber(date);
-    if (n < start || n > end) continue;
-    for (const [pid, count] of Object.entries(entry.guests || {})) {
-      if (stats[pid]) stats[pid].guestNights += count;
-    }
-    const wk = weekKey(date);
-    for (const [pid, count] of Object.entries(entry.washes || {})) {
-      if (!stats[pid]) continue;
-      stats[pid].washes += count;
-      stats[pid].weeks[wk] = (stats[pid].weeks[wk] || 0) + count;
-    }
+    if (!inPeriod(date)) continue;
+    for (const [pid, count] of Object.entries(entry.guests || {})) if (stats[pid]) stats[pid].guestNights += count;
+    for (const [pid, count] of Object.entries(entry.washes || {})) if (stats[pid]) stats[pid].washes += count;
   }
+  // Se cuentan los bloques completos (aunque empiecen antes del periodo de la factura),
+  // pero solo se cobran las lavadoras extra cuya fecha está dentro del periodo.
+  const extrasByDate = allWashExtras(entries, people, settings);
+  const extras = people.map(p =>
+    Object.entries(extrasByDate[p.id]).reduce((a, [date, n]) => a + (inPeriod(date) ? n : 0), 0));
 
   // Paso 1: invitados
   let guestCents = people.map(p => Math.round(stats[p.id].guestNights * guestCost * 100));
@@ -64,8 +103,6 @@ export function computeSplit({ people, entries, from, to, total, settings }) {
 
   // Paso 2: resto con pesos por lavadoras extra
   const restCents = totalCents - guestCents.reduce((a, b) => a + b, 0);
-  const extras = people.map(p =>
-    Object.values(stats[p.id].weeks).reduce((a, c) => a + Math.max(0, c - freeWashesPerWeek), 0));
   const weights = extras.map(e => 1 + (extraWashPct / 100) * e);
   const restShares = splitCents(restCents, weights);
   const equalShare = restCents / people.length;

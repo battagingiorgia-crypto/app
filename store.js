@@ -3,9 +3,15 @@
 //  - compartido: datos en Firebase Firestore, sincronizados entre todos los móviles del piso
 import { firebaseConfig, emulatorHost } from './firebase-config.js';
 
+function firstOfMonth() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
 export const DEFAULT = {
   people: [1, 2, 3, 4, 5].map(i => ({ id: 'p' + i, name: 'Persona ' + i })),
-  settings: { guestCost: 0.4, freeWashesPerWeek: 2, extraWashPct: 1 },
+  // blockStart: día 1 del mes en que se empieza a usar la app (se puede cambiar en Ajustes)
+  settings: { guestCost: 0.4, freeWashes: 2, windowDays: 9, extraWashPct: 2, blockStart: firstOfMonth() },
   entries: {},   // { "2026-11-13": { guests: { p1: 1 }, washes: { p3: 1 } } }
   bills: [],     // facturas guardadas (la más reciente primero)
 };
@@ -53,10 +59,16 @@ function emitter() {
 }
 
 // ======================= STORE LOCAL =======================
+/** Completa los datos con los valores por defecto (p. ej. reglas nuevas que no existían antes). */
+function withDefaults(data) {
+  const base = structuredClone(DEFAULT);
+  return { ...base, ...data, settings: { ...base.settings, ...(data.settings || {}) } };
+}
+
 export function loadLocalData() {
   try {
     const raw = localStorage.getItem(LOCAL_KEY);
-    if (raw) return { ...structuredClone(DEFAULT), ...JSON.parse(raw) };
+    if (raw) return withDefaults(JSON.parse(raw));
   } catch {}
   return structuredClone(DEFAULT);
 }
@@ -65,6 +77,8 @@ export function createLocalStore() {
   const ev = emitter();
   let state = loadLocalData();
   const commit = () => { try { localStorage.setItem(LOCAL_KEY, JSON.stringify(state)); } catch {} ev.emit('change', state); };
+  // Guardar ya al empezar, para fijar la fecha de inicio de los bloques (si no, cambiaría cada mes)
+  try { localStorage.setItem(LOCAL_KEY, JSON.stringify(state)); } catch {}
   return {
     mode: 'local',
     get state() { return state; },
@@ -82,7 +96,7 @@ export function createLocalStore() {
     setSetting(key, value) { state.settings[key] = value; commit(); },
     addBill(bill) { state.bills.unshift(bill); commit(); },
     deleteBill(id) { state.bills = state.bills.filter(b => b.id != id); commit(); },
-    importAll(data) { state = { ...structuredClone(DEFAULT), ...data }; commit(); },
+    importAll(data) { state = withDefaults(data); commit(); },
     resetAll() { state = structuredClone(DEFAULT); commit(); },
   };
 }

@@ -1,4 +1,4 @@
-import { computeSplit, weekKey, dayNumber } from './calc.js';
+import { computeSplit, allWashExtras, blockRange, dayNumber } from './calc.js';
 import {
   isShared, createLocalStore, createFirebaseStore, createPiso, pisoExists,
   getPisoId, setPisoId, parsePisoInput, loadLocalData,
@@ -60,25 +60,28 @@ function renderCalendar() {
     }
     $('calendar').innerHTML = html;
   }
+  const extras = allWashExtras(S().entries, S().people, S().settings);
   $('calendar').querySelectorAll('.day[data-date]').forEach(btn => {
     const ds = btn.dataset.date;
+    const x = Object.values(extras).reduce((a, byDate) => a + (byDate[ds] || 0), 0);
     const e = S().entries[ds] || {};
     const g = Object.values(e.guests || {}).reduce((a, b) => a + b, 0);
     const w = Object.values(e.washes || {}).reduce((a, b) => a + b, 0);
-    const marks = '<span class="dot guest"></span>'.repeat(Math.min(g, 5)) + '<span class="dot wash"></span>'.repeat(Math.min(w, 5));
+    const marks = '<span class="dot guest"></span>'.repeat(Math.min(g, 5)) +
+      '<span class="dot wash"></span>'.repeat(Math.min(w - x, 5)) + '<span class="dot extra"></span>'.repeat(Math.min(x, 5));
     const m = btn.querySelector('.marks');
     if (m.innerHTML !== marks) m.innerHTML = marks;
     btn.classList.toggle('today', ds === today);
     btn.classList.toggle('selected', ds === selected);
   });
-  renderDay();
+  renderDay(extras);
 }
 $('calendar').addEventListener('click', ev => {
   const btn = ev.target.closest('.day[data-date]');
   if (btn) { selected = btn.dataset.date; renderCalendar(); }
 });
 
-function renderDay() {
+function renderDay(extras) {
   const key = selected + '|' + S().people.map(p => p.id + p.name).join('|');
   if (key !== dayKey) {
     dayKey = key;
@@ -98,16 +101,18 @@ function renderDay() {
   $('day-people').querySelectorAll('[data-val]').forEach(el => {
     const [pid, k] = el.dataset.val.split('-');
     el.textContent = e[k]?.[pid] || 0;
+    el.classList.toggle('over', k === 'washes' && !!extras[pid]?.[selected]);
   });
 
-  // Resumen semanal de lavadoras (lunes-domingo de la semana seleccionada)
-  const monday = weekKey(selected);
+  // Resumen: lavadoras de cada persona en el bloque de N días al que pertenece el día seleccionado
+  const { freeWashes: free, windowDays: days, blockStart } = S().settings;
+  const [bFrom, bTo] = blockRange(selected, blockStart, days);
   const counts = Object.fromEntries(S().people.map(p => [p.id, 0]));
-  for (let i = 0; i < 7; i++) {
-    const w = S().entries[addDays(monday, i)]?.washes || {};
-    for (const [pid, c] of Object.entries(w)) if (pid in counts) counts[pid] += c;
+  for (const [date, entry] of Object.entries(S().entries)) {
+    if (date >= bFrom && date <= bTo) for (const [pid, c] of Object.entries(entry.washes || {})) if (pid in counts) counts[pid] += c;
   }
-  const free = S().settings.freeWashesPerWeek;
+  const short = s => fromStr(s).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+  $('window-title').textContent = `Lavadoras en este bloque de ${days} días (${short(bFrom)} – ${short(bTo)})`;
   $('week-summary').innerHTML = S().people.map(p =>
     `<span class="chip ${counts[p.id] > free ? 'over' : ''}">${esc(p.name)}: ${counts[p.id]}/${free}</span>`).join('');
 }
@@ -148,8 +153,8 @@ function showResult(bill, result, saved) {
     </table>
     <h4>¿Cómo se ha calculado?</h4>
     <p class="small muted">1) Visitas: ${eur(s.guestCost)} por noche → suman ${eur(r.guestTotal)}, que paga quien tuvo la visita.<br>
-    2) El resto (${eur(r.rest)}) se reparte entre ${r.rows.length}. Quien hizo más de ${s.freeWashesPerWeek} lavadoras en una semana
-    paga un ${s.extraWashPct}% más que la parte normal por cada lavadora extra.</p>
+    2) El resto (${eur(r.rest)}) se reparte entre ${r.rows.length}. En cada bloque de ${s.windowDays} días, cada lavadora a partir de la ${s.freeWashes + 1}ª
+    (las naranjas del calendario) suma un ${s.extraWashPct}% a la parte de quien la puso.</p>
     ${r.rows.filter(x => x.guestNights || x.extraWashes).map(x =>
       `<p class="small">• <b>${esc(x.name)}</b>: ${eur(x.baseAmount)} de parte base${x.guestNights ? ` + ${eur(x.guestAmount)} por ${x.guestNights} noche(s) de visita` : ''}${x.extraWashes ? ` (incluye +${eur(x.laundryDiff)} por ${x.extraWashes} lavadora(s) extra)` : ''}.</p>`).join('')}
     ${saved ? '' : '<button id="save-bill" class="primary">Guardar factura</button>'}
@@ -199,13 +204,15 @@ function renderSettings() {
   }
   $('names').querySelectorAll('input').forEach(inp => inp.addEventListener('change', () =>
     store.setPersonName(inp.dataset.pid, inp.value.trim() || 'Sin nombre')));
-  for (const [id, key] of SETTING_FIELDS) if (document.activeElement !== $(id)) $(id).value = S().settings[key];
+  for (const [id, key] of [...SETTING_FIELDS, ['set-start', 'blockStart']]) if (document.activeElement !== $(id)) $(id).value = S().settings[key];
 
   $('share-card').hidden = store.mode !== 'shared';
   if (store.mode === 'shared') $('share-link').value = shareUrl();
   $('reset-btn').textContent = store.mode === 'shared' ? 'Borrar todos los datos del piso (para todas)' : 'Borrar todos los datos';
 }
-const SETTING_FIELDS = [['set-guest', 'guestCost'], ['set-free', 'freeWashesPerWeek'], ['set-pct', 'extraWashPct']];
+const SETTING_FIELDS = [['set-guest', 'guestCost'], ['set-free', 'freeWashes'], ['set-days', 'windowDays'], ['set-pct', 'extraWashPct']];
+// Fecha en la que empieza el primer bloque de días
+$('set-start').addEventListener('change', () => { if ($('set-start').value) store.setSetting('blockStart', $('set-start').value); });
 SETTING_FIELDS.forEach(([id, key]) => $(id).addEventListener('change', () => {
   const v = parseFloat($(id).value);
   if (v >= 0) store.setSetting(key, v);

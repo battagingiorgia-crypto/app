@@ -4,18 +4,21 @@ App móvil (PWA) para repartir entre 5 personas la factura trimestral del agua.
 
 ## Funciones
 - **Calendario**: en cada día se apunta, por persona, las noches de visita 🏠 y las lavadoras 🧺.
-  Abajo se ve cuántas lavadoras lleva cada persona esa semana (en naranja si se pasa del límite).
+  Abajo se ve cuántas lavadoras lleva cada persona en el bloque de 9 días (en naranja si se pasa del límite).
 - **Factura**: introduces fechas e importe → la app calcula cuánto paga cada una y explica el cálculo. Se guarda en el historial.
-- **Ajustes**: nombres, coste por visita, lavadoras gratis por semana, % de recargo, exportar/importar datos.
+- **Ajustes**: nombres, coste por visita, lavadoras incluidas por bloque, duración e inicio de los bloques, % de recargo, exportar/importar datos.
 
 ## Cómo se calcula
-1. Cada noche de visita suma **0,40 €** a quien la tuvo.
-2. El resto de la factura se reparte entre las 5 con un peso: `peso = 1 + (% / 100) × lavadoras_extra`.
-   Las lavadoras extra son las que superan **2 por semana** (lunes–domingo).
-3. Los céntimos se ajustan para que la suma sea exactamente el importe de la factura.
+1. Cada noche de visita suma **0,40 €** a quien la tuvo (punto **verde** en el calendario).
+2. Lavadoras: los días se agrupan en **bloques fijos de 9 días** (p. ej. 1–9, 10–18, 19–27…; el día en que
+   empieza el primer bloque se elige en Ajustes). En cada bloque cada persona tiene **2 lavadoras incluidas**;
+   a partir de la **3ª**, cada lavadora es extra: sale en **naranja** y suma un **2 %**.
+3. El resto de la factura se reparte entre las 5 con un peso: `peso = 1 + 2 % × lavadoras_extra`.
+   Así quien no se pasa paga la parte normal y el total siempre cuadra con la factura.
+4. Los céntimos se ajustan para que la suma sea exactamente el importe de la factura.
 
-Recargo recomendado: **1 % por lavadora extra** (una lavadora gasta ~50 L ≈ 0,10–0,15 € de agua,
-que es más o menos el 0,5–1 % de la parte de cada una en una factura de ~150 €).
+Ejemplo (bloque 1–9): lavadoras los días 2, 5 y 8 → la del 8 es extra. Días 5, 8 y 11 → ninguna, porque la del 11
+ya está en el bloque siguiente.
 
 ## Base de datos compartida (Firebase) — configuración (una sola vez, ~10 min)
 Sin configurar, la app funciona en **modo local** (datos solo en un móvil). Para que las 5 veáis lo mismo:

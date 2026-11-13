@@ -39,12 +39,12 @@
       </div>
       <div class="weekdays"><span>L</span><span>M</span><span>X</span><span>J</span><span>V</span><span>S</span><span>D</span></div>
       <div id="calendar" class="calendar"></div>
-      <p class="legend"><span class="dot guest"></span> visita &nbsp; <span class="dot wash"></span> lavadora</p>
+      <p class="legend"><span class="dot guest"></span> visita &nbsp; <span class="dot wash"></span> lavadora &nbsp; <span class="dot extra"></span> lavadora extra</p>
 
       <div id="day-panel" class="card">
         <h3 id="day-title"></h3>
         <div id="day-people"></div>
-        <h4>Lavadoras esta semana</h4>
+        <h4 id="window-title">Lavadoras en este bloque</h4>
         <div id="week-summary" class="week-summary"></div>
       </div>
     </section>
@@ -83,9 +83,11 @@
       <div class="card">
         <h3>Reglas</h3>
         <label>Coste por noche de visita (€) <input type="number" id="set-guest" step="0.01" min="0"></label>
-        <label>Lavadoras gratis por persona y semana <input type="number" id="set-free" step="1" min="0"></label>
+        <label>Lavadoras incluidas por persona en cada bloque <input type="number" id="set-free" step="1" min="0"></label>
+        <label>Duración de cada bloque (días) <input type="number" id="set-days" step="1" min="1"></label>
+        <label>El primer bloque empieza el <input type="date" id="set-start"></label>
         <label>Recargo por cada lavadora extra (%) <input type="number" id="set-pct" step="0.5" min="0"></label>
-        <p class="muted small">Recomendado: 1 % por lavadora extra (ver README).</p>
+        <p class="muted small">Los bloques van seguidos (p. ej. 1–9, 10–18…). Dentro de cada bloque, las lavadoras que superan el límite salen en naranja y suman este %.</p>
       </div>
       <div class="card">
         <h3>Copia de seguridad / compartir datos</h3>

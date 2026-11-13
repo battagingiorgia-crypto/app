@@ -1,10 +1,10 @@
 :root {
   --bg: #f3f6fa; --card: #fff; --text: #1b2430; --muted: #6b7785; --line: #dfe5ec;
-  --primary: #1677c9; --guest: #e8890c; --wash: #1677c9; --danger: #c93a3a; --warn-bg: #fff1e0;
+  --primary: #1677c9; --guest: #2e9e5b; --wash: #1677c9; --extra: #e8890c; --danger: #c93a3a; --warn-bg: #fff1e0;
 }
 @media (prefers-color-scheme: dark) {
   :root { --bg: #11161c; --card: #1b232c; --text: #e7edf3; --muted: #93a0ad; --line: #2c3743;
-          --primary: #4ea3ea; --wash: #4ea3ea; --warn-bg: #3a2a14; }
+          --primary: #4ea3ea; --wash: #4ea3ea; --guest: #4cc27f; --warn-bg: #3a2a14; }
 }
 * { box-sizing: border-box; }
 body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: var(--bg); color: var(--text);
@@ -43,7 +43,7 @@ button.danger { color: var(--danger); border-color: var(--danger); width: 100%; 
 .day.selected { border-color: var(--primary); }
 .marks { display: flex; gap: 2px; flex-wrap: wrap; justify-content: center; min-height: 8px; }
 .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; }
-.dot.guest { background: var(--guest); } .dot.wash { background: var(--wash); }
+.dot.guest { background: var(--guest); } .dot.wash { background: var(--wash); } .dot.extra { background: var(--extra); }
 .legend { font-size: .8rem; color: var(--muted); text-align: center; }
 
 .person { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--line); gap: 6px; }
@@ -53,9 +53,10 @@ button.danger { color: var(--danger); border-color: var(--danger); width: 100%; 
 .stepper button { width: 34px; height: 34px; padding: 0; border-radius: 50%; }
 .stepper .val { min-width: 18px; text-align: center; font-weight: 700; }
 .stepper.guest .val { color: var(--guest); } .stepper.wash .val { color: var(--wash); }
+.stepper.wash .val.over { color: var(--extra); }
 .week-summary { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { padding: 4px 10px; border-radius: 20px; background: var(--bg); font-size: .85rem; }
-.chip.over { background: var(--warn-bg); color: var(--guest); font-weight: 700; }
+.chip.over { background: var(--warn-bg); color: var(--extra); font-weight: 700; }
 
 table { width: 100%; border-collapse: collapse; font-size: .9rem; }
 th, td { padding: 6px 4px; text-align: right; border-bottom: 1px solid var(--line); }
